@@ -1,0 +1,134 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Smart Student Planner</title>
+<style>
+:root{--bg:#fff;--fg:#0f172a;--card:#fff;--bd:#dbeafe;--mut:#64748b;--ac:#2563eb;--bf:#fff;--ok:#2563eb;--bad:#1e3a8a;--soft:#eff6ff}
+:root.dark{--bg:#0b1220;--fg:#e2e8f0;--card:#111a2e;--bd:#1e2d4d;--mut:#94a3b8;--ac:#3b82f6;--bf:#fff;--ok:#3b82f6;--bad:#93c5fd;--soft:#16233f}
+*{box-sizing:border-box}body{margin:0;font:15px system-ui,sans-serif;background:var(--bg);color:var(--fg)}
+.w{max-width:980px;margin:auto;padding:12px}.hd{justify-content:space-between;margin-bottom:12px;padding:12px 16px;border-radius:12px;background:var(--ac);color:#fff}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:12px;transition:box-shadow .2s}.card:hover{box-shadow:0 4px 14px #2563eb33}
+.g{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+button,input,select{font:inherit;color:inherit}button{background:var(--ac);color:var(--bf);border:0;border-radius:8px;padding:8px 14px;cursor:pointer;transition:opacity .15s,transform .15s}
+button:hover{opacity:.85}button:active{transform:scale(.96)}button.s{background:var(--mut);color:#fff}button.t{background:var(--soft);color:var(--fg);border:1px solid var(--bd)}button.on{background:var(--ac);color:var(--bf)}
+input,select{background:transparent;border:1px solid var(--bd);border-radius:8px;padding:7px;min-width:0}input:focus,select:focus{outline:2px solid var(--ac)}
+form{display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}form button{grid-column:1/-1}
+label{font-size:12px;color:var(--mut)}h1{font-size:20px;margin:0}h2{font-size:15px;margin:0 0 8px}.m{color:var(--mut);font-size:12px}
+.bar{display:flex;align-items:center;gap:6px;font-size:12px;margin:5px 0}.bar i{flex:1;height:10px;background:var(--soft);border-radius:5px}.bar b{display:block;height:10px;border-radius:5px;background:var(--ac);transition:width .6s}
+.pill{color:#fff;border-radius:99px;padding:3px 10px;font-size:12px;font-weight:600}.free{border:1px dashed var(--ac);color:var(--ac);border-radius:8px;padding:4px 8px;font-size:12px;margin:3px 0}
+.cls{background:var(--soft);border:1px solid var(--bd);border-radius:8px;padding:4px 8px;font-size:12px;margin:3px 0;display:flex;justify-content:space-between}.k-exam{font-weight:700;border-color:var(--ac);color:var(--ac)}
+.today{outline:2px solid var(--ac)}.sp{display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-bottom:1px solid var(--bd);font-size:13px}.x{background:none!important;color:var(--mut);padding:0 4px}
+.tiles{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));margin-bottom:12px}
+.tile{background:var(--card)!important;color:var(--fg);border:1px solid var(--bd);border-radius:12px;padding:12px;display:flex;flex-direction:column}.tile span{display:none}.tile b{font-size:26px;color:var(--ac)}.tile small{color:var(--mut)}
+#tm{position:absolute;inset:0;display:grid;place-items:center;font:700 46px ui-monospace,monospace}#ring{transition:stroke-dashoffset 1s linear}
+#toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,80px);background:#1e3a8a;color:#fff;padding:10px 18px;border-radius:99px;opacity:0;transition:.3s;z-index:9}#toast.show{transform:translate(-50%,0);opacity:1}
+#v>*{animation:fade .3s}@keyframes fade{from{opacity:0;transform:translateY(6px)}}
+</style></head><body><div class="w"><div class="hd row"><h1> Smart Student Planner</h1><button class="t" onclick="dark()">Dark / Light</button></div>
+<div class="row" id="nav" style="margin-bottom:12px"></div><div id="v"></div></div><div id="toast"></div>
+<script>
+const KEY='ssp_eee',DAYS=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+let S={classes:[],tasks:[],sessions:[]},tab='Dashboard',uid=()=>Math.random().toString(36).slice(2);
+try{S=JSON.parse(localStorage.getItem(KEY))||S;if(localStorage.getItem('ssp_dark')==='1')document.documentElement.classList.add('dark')}catch(e){}
+const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}},$=i=>document.getElementById(i).value;
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const hm=m=>String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0'),toMin=t=>{const[a,b]=t.split(':').map(Number);return a*60+b},ymd=d=>d.toLocaleDateString('en-CA');
+const left=d=>{const h=(new Date(d)-Date.now())/36e5;return h<0?'overdue':h<48?Math.round(h)+'h left':Math.round(h/24)+'d left'};
+function dark(){const d=document.documentElement.classList.toggle('dark');try{localStorage.setItem('ssp_dark',d?'1':'0')}catch(e){}}
+
+/* ---------- SCHEDULING LOGIC ---------- */
+const DS=480,DE=1320,MINB=30,MAXC=90,MAXDAY=360; // MAXDAY: healthy cap of 6h planned study per day
+// Free blocks (>=30 min) between classes, 08:00-22:00, next 7 days
+function freeBlocks(now=new Date()){const out=[],H=Math.min(21,Math.max(7,Math.ceil(Math.max(0,...S.tasks.map(t=>new Date(t.deadline)-now))/864e5)+1));for(let d=0;d<H;d++){const dt=new Date(now);dt.setHours(0,0,0,0);dt.setDate(dt.getDate()+d);
+ const busy=S.classes.filter(c=>c.date?c.date===ymd(dt):c.day===dt.getDay()).map(c=>[toMin(c.start),toMin(c.end)]).sort((a,b)=>a[0]-b[0]);let cur=DS;
+ if(d===0)cur=Math.max(cur,Math.ceil((now.getHours()*60+now.getMinutes())/15)*15);
+ const push=(s,e)=>e-s>=MINB&&out.push({date:ymd(dt),start:s,end:e});for(const[s,e]of busy){push(cur,s);cur=Math.max(cur,e)}push(cur,DE)}return out}
+/* PRIORITY (0-100) = 100*(0.45*urgency + 0.40*impact + 0.15*difficulty)
+   urgency = 1 if overdue else 1/(1+hoursLeft/48)  (0.5 at 48h, ~0.2 at a week)
+   impact  = min(gradeWeight%/30, 1)               (30%+ = max impact)
+   difficulty = level/5
+   Eisenhower: urgent = due <=48h, important = weight >=10% */
+function score(t,now=new Date()){const h=(new Date(t.deadline)-now)/36e5,u=h<=0?1:1/(1+h/48),i=Math.min(t.weight/30,1),ur=h<=48,im=t.weight>=10;
+ return{priority:Math.round(100*(.45*u+.4*i+.15*t.difficulty/5)),quad:ur&&im?'Do first':im?'Schedule':ur?'Quick win':'Later'}}
+// Greedy planner: highest priority first into earliest free blocks before deadline, chunks <=90 min
+function overview(now=new Date()){const blocks=freeBlocks(now),work=blocks.map(b=>({...b}));
+ const tasks=S.tasks.map(t=>{const lg=S.sessions.filter(s=>s.taskId===t.id).reduce((a,s)=>a+s.minutes,0);return{...t,...score(t,now),logged:lg,rem:Math.max(0,t.estHours*60-lg)}}).sort((a,b)=>b.priority-a.priority);
+ const slots=[],used={},short=[];for(const t of tasks.filter(t=>!t.done)){let r=t.rem;for(const b of work){if(r<=0)break;const e=new Date(b.date+'T00:00:00');e.setMinutes(b.start);if(e>new Date(t.deadline))continue;
+  const len=Math.min(r,b.end-b.start,MAXC,MAXDAY-(used[b.date]||0));if(len<15)continue;slots.push({title:t.title,date:b.date,start:b.start,end:b.start+len});used[b.date]=(used[b.date]||0)+len;b.start+=len;r-=len}if(r>=15)short.push({title:t.title,min:r})}
+ const daily={};slots.forEach(s=>daily[s.date]=(daily[s.date]||0)+s.end-s.start);
+ const sum=k=>S.sessions.reduce((o,s)=>{const x=k(s);o[x]=(o[x]||0)+s.minutes;return o},{});
+ return{tasks,slots,blocks,daily,burnout:[...Object.keys(daily).filter(d=>daily[d]>480).map(d=>`Over 8h of study planned on ${d}.`),...short.map(x=>`Not enough free time for "${x.title}" (${Math.round(x.min/6)/10}h short) within a healthy 6h/day.`)],today:daily[ymd(now)]||0,
+  bySubject:sum(s=>s.course||'Other'),byHour:sum(s=>new Date(s.startedAt).getHours()+':00'),byDay:sum(s=>DAYS[new Date(s.startedAt).getDay()]),
+  rate:S.tasks.length?Math.round(100*S.tasks.filter(t=>t.done).length/S.tasks.length):0}}
+
+/* ---------- SAMPLE DATA ---------- */
+function sample(){const iso=(d,h=23)=>{const x=new Date();x.setDate(x.getDate()+d);x.setHours(h,0,0,0);return x.toISOString()},c=(title,kind,day,start,end)=>({id:uid(),title,kind,day,start,end}),
+ T=(title,course,d,h,est,diff,weight,ex)=>({id:uid(),title,course,deadline:iso(d,h),estHours:est,difficulty:diff,weight,done:false,isExam:!!ex});
+ S.classes=[1,2,3,4,5].map(d=>c('Circuit Analysis','lecture',d,'09:00','10:00')).concat([c('Data Structures','lecture',1,'10:00','11:00'),c('Engg Maths','lecture',2,'11:00','12:00'),c('Signals Lab','lab',3,'13:00','16:00'),c('Microcontroller Lab','lab',5,'13:00','16:00'),c('Robotics Club','extracurricular',4,'16:30','18:00'),c('Technical Writing','lecture',4,'11:00','12:00')]);
+ S.tasks=[T('Circuit Analysis Midterm','EE201',3,10,10,5,30,1),T('Signals Lab Report 4','EE210',2,23,3,3,8),T('Data Structures Assignment','CS203',5,23,6,4,15),T('Maths Quiz Prep','MA201',1,14,2,2,5,1),T('Technical Writing Essay','HS101',9,23,4,2,10),T('Microcontroller Mini Project','EE250',12,23,14,4,25)];
+ S.sessions=['EE201','CS203','EE210','EE201','MA201'].map((course,i)=>{const t=new Date();t.setDate(t.getDate()-i);t.setHours(16-i%3,0,0,0);return{id:uid(),taskId:null,course,minutes:25*(2+i%3),startedAt:t.toISOString()}});save();render();toast(' Sample student data loaded!')}
+
+/* ---------- FUN / INTERACTION HELPERS ---------- */
+let F='All';const wk=()=>ymd(new Date(Date.now()+6*864e5));
+function hue(s){let h=0;for(const c of String(s))h=(h*31+c.charCodeAt(0))%360;return h}
+const pc=p=>p>=60?'#1e3a8a':p>=40?'#2563eb':'#60a5fa',urg=d=>(new Date(d)-Date.now())/36e5<48?'var(--ac)':'var(--mut)';
+function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');clearTimeout(toast.i);toast.i=setTimeout(()=>t.classList.remove('show'),2300)}
+function burst(){}
+function beep(){try{const a=new(window.AudioContext||window.webkitAudioContext)(),o=a.createOscillator();o.connect(a.destination);o.frequency.value=880;o.start();o.stop(a.currentTime+.25)}catch(e){}}
+const tile=(c,i,n,l)=>`<div class="tile" style="background:${c}"><span>${i}</span><b>${n}</b><small>${l}</small></div>`;
+const tiles=o=>{const pend=o.tasks.filter(t=>!t.done),soon=pend.filter(t=>new Date(t.deadline)-Date.now()<1728e5).length,fm=S.sessions.reduce((a,s)=>a+s.minutes,0);
+ return`<div class="tiles">${tile('transparent','',pend.length,'tasks pending')}${tile('transparent','',soon,'due within 48h')}${tile('transparent','',(Math.round(o.today/6)/10)+'h','study goal today')}${tile('transparent','',(Math.round(fm/6)/10)+'h','focused so far')}</div>`};
+function focusTask(id){T.task=id;tab='Timer';render();toast('Task linked. Press Start or the spacebar!')}
+/* ---------- MY EEE CIA-II SCHEDULE (Sri Eshwar, I-Year Sem 1, circular SECE/CoE/2026-27/ODD/015) ---------- */
+function loadEEE(){
+ if((S.tasks.length||S.classes.length)&&!confirm('This replaces your current tasks and timetable. Continue?'))return;
+ // [date, code, subject, est. hours, difficulty]  (hours and difficulty are my starting guesses, editable with the pencil button)
+ const ex=[['2026-12-07','U26MA202','Calculus and Laplace Transform Techniques',8,4],['2026-12-08','U26HS181','Business English - I',4,2],['2026-12-09','U26CS381','Front End Technologies',6,3],
+  ['2026-12-10','U26EE401','Electric Circuit Analysis',10,5],['2026-12-11','U26CS392','Problem Solving using C',8,3],['2026-12-12','U26PH285','Semiconductor Physics and Electron Devices',8,4]];
+ S.classes=[];S.tasks=[];
+ ex.forEach(([date,code,name,est,diff])=>{const day=new Date(date+'T12:00').getDay(),ev=(title,kind,start,end)=>S.classes.push({id:uid(),title,kind,day,date,start,end});
+  ev('Study Hour','skill','08:40','08:55');ev('CIA-II: '+name,'exam','09:00','10:45');ev('Skill Assessment Test - II','skill','11:00','12:25');ev('Lunch','lunch','12:25','13:10');ev('Skill Assessment Test - II','skill','13:10','16:10');
+  S.tasks.push({id:uid(),title:'CIA-II: '+name,course:code,deadline:new Date(date+'T09:00:00').toISOString(),estHours:est,difficulty:diff,weight:15,done:false,isExam:true,note:'Units 4, 5 + 2nd half of Unit 3 · 60 marks · 1h45m'})});
+ save();render();toast(' Your EEE CIA-II schedule is loaded!')}
+function editTask(id){const t=S.tasks.find(x=>x.id===id),v=prompt('Estimated hours, difficulty (1-5), grade weight % (comma separated)',[t.estHours,t.difficulty,t.weight].join(', '));if(!v)return;
+ const[a,b,c]=v.split(',').map(Number);if([a,b,c].some(isNaN))return toast('Please enter 3 numbers');
+ Object.assign(t,{estHours:a,difficulty:Math.min(5,Math.max(1,b)),weight:Math.min(100,Math.max(0,c))});save();render();toast('Edit Task updated, plan recalculated')}
+/* ---------- TIMER ---------- */
+let T={p:[25,5],mode:'focus',secs:1500,run:false,id:null,task:''};
+const mmss=()=>String(Math.floor(T.secs/60)).padStart(2,'0')+':'+String(T.secs%60).padStart(2,'0');
+const paint=()=>{const e=document.getElementById('tm'),r=document.getElementById('ring');if(e)e.textContent=mmss();if(r)r.style.strokeDashoffset=565.5*(1-T.secs/(T.p[T.mode==='focus'?0:1]*60))};
+function toggle(r){T.run=r;clearInterval(T.id);if(r)T.id=setInterval(tick,1000);if(tab==='Timer')render()}
+function setT(m,r){T.mode=m;T.secs=T.p[m==='focus'?0:1]*60;toggle(r)}
+function tick(){T.secs--;if(T.secs>0)return paint();
+ if(T.mode==='focus'){const t=S.tasks.find(x=>x.id===T.task);S.sessions.push({id:uid(),taskId:T.task||null,course:t?t.course:'Other',minutes:T.p[0],startedAt:new Date().toISOString()});save();beep();burst();toast(' Focus session logged! Take a break.');setT('break',true)}else{beep();toast('Break over. Ready for the next round?');setT('focus',false)}}
+function preset(a,b){T.p=[a,b];setT('focus',false)}
+
+/* ---------- VIEWS ---------- */
+const bars=(d,f=v=>(Math.round(v/6)/10)+'h')=>{const k=Object.keys(d),m=Math.max(1,...k.map(x=>d[x]));return k.length?k.map(x=>`<div class="bar"><span style="width:56px">${esc(x)}</span><i><b style="width:${100*d[x]/m}%;background:var(--ac)"></b></i><span>${f(d[x])}</span></div>`).join(''):'<p class="m">No data yet.</p>'};
+const views={
+Dashboard(o){const up=o.tasks.filter(t=>!t.done).sort((a,b)=>new Date(a.deadline)-new Date(b.deadline)),td=ymd(new Date());
+ return`<div class="row" style="margin-bottom:12px"><button onclick="loadEEE()"> Load My EEE CIA-II Schedule</button><button class="t" onclick="sample()">Load Sample Student Data</button><button class="s" onclick="if(confirm('Delete all data?')){S={classes:[],tasks:[],sessions:[]};save();render()}">Clear all</button></div>
+ ${tiles(o)}<div class="card" style="border-color:${o.burnout.length?'var(--bad)':'var(--ok)'}"><b style="color:${o.burnout.length?'var(--bad)':'var(--ok)'}">${o.burnout.length?' Burnout alert: '+o.burnout.join(' ')+' Consider moving deadlines or trimming estimates.':' Workload looks healthy (8h/day or less outside class).'}</b><p class="m">Today's study goal: ${Math.round(o.today/6)/10}h</p></div>
+ <div class="g"><div class="card"><h2>Countdowns</h2>${up.map(t=>`<div class="sp"><span>${t.isExam?'':''} ${esc(t.title)} <span class="m">${esc(t.course)}</span></span><b style="color:${urg(t.deadline)}">${left(t.deadline)}</b></div>`).join('')||'<p class="m">Nothing yet. Load sample data or add tasks.</p>'}</div>
+ <div class="card"><h2>Auto-planned study slots</h2>${o.slots.slice(0,10).map(s=>`<div class="sp"><span>${s.date===td?'Today':s.date} ${hm(s.start)}-${hm(s.end)}</span><span>${esc(s.title)}</span></div>`).join('')||'<p class="m">No slots planned.</p>'}</div></div>
+ <div class="card"><h2>Planned study hours (next 7 days)</h2>${bars(o.daily)}</div>`},
+Timetable(o){return`<form class="card" onsubmit="event.preventDefault();addClass()"><input id="ct" placeholder="Title" required><select id="ck"><option>lecture</option><option>lab</option><option>extracurricular</option></select><select id="cd">${DAYS.map((d,i)=>`<option value="${i}">${d}</option>`).join('')}</select><input id="cs" type="time" value="09:00"><input id="ce" type="time" value="10:00"><button>Add recurring class</button></form>
+ <div class="g">${[1,2,3,4,5,6,0].map(d=>`<div class="card${d===new Date().getDay()?' today':''}"><h2>${DAYS[d]}${d===new Date().getDay()?' · Today':''}</h2>${S.classes.filter(c=>c.day===d&&(!c.date||(c.date>=ymd(new Date())&&c.date<=wk()))).sort((a,b)=>a.start.localeCompare(b.start)).map(c=>`<div class="cls k-${c.kind}"><span>${c.date?c.date.slice(5)+' ':''}${c.start}-${c.end} ${esc(c.title)}</span><button class="x" onclick="del('classes','${c.id}')">✕</button></div>`).join('')}${o.blocks.filter(b=>b.date<=wk()&&new Date(b.date+'T12:00').getDay()===d).slice(0,3).map(b=>`<div class="free"> free ${hm(b.start)}-${hm(b.end)}</div>`).join('')}</div>`).join('')}</div>`},
+Tasks(o){const cs=['All',...new Set(S.tasks.map(t=>t.course))];return`<form class="card" onsubmit="event.preventDefault();addTask()"><input id="tt" placeholder="Title" required><input id="tc" placeholder="Course" required><div><label>Deadline</label><input id="td" type="datetime-local" required></div><div><label>Est. hours</label><input id="te" type="number" min=".5" step=".5" value="2"></div><div><label>Difficulty 1-5</label><input id="tf" type="number" min="1" max="5" value="3"></div><div><label>Grade weight %</label><input id="tw" type="number" min="0" max="100" value="10"></div><div><label>Exam?</label><input id="tx" type="checkbox"></div><button> Add task</button></form>
+ <div class="row" style="margin-bottom:12px">${cs.map(c=>`<button class="${F===c?'on':'t'}" onclick="F=${JSON.stringify(c).replace(/"/g,'&quot;')};render()">${esc(c)}</button>`).join('')}</div>
+ ${o.tasks.filter(t=>F==='All'||t.course===F).map(t=>`<div class="card row" style="border-left:6px solid var(--ac);opacity:${t.done?.5:1}"><input type="checkbox" ${t.done?'checked':''} onchange="tog('${t.id}')"><div style="flex:1;min-width:160px"><b>${t.isExam?' ':''}${esc(t.title)}</b> <span class="m" style="color:var(--ac)">${esc(t.course)}</span><div class="m">${left(t.deadline)} · ${t.weight}% · diff ${t.difficulty} · ${t.quad}${t.note?' · '+esc(t.note):''}</div><div class="bar"><i><b style="width:${Math.min(100,100*t.logged/(t.estHours*60))}%;background:var(--ac)"></b></i><span>${Math.round(t.logged)}/${t.estHours*60}m</span></div></div><span class="pill" style="background:${pc(t.priority)}">Priority ${t.priority}</span><button onclick="focusTask('${t.id}')">▶ Focus</button><button class="x" onclick="editTask('${t.id}')">Edit</button><button class="x" onclick="del('tasks','${t.id}')">✕</button></div>`).join('')||'<p class="m">No tasks here yet.</p>'}`},
+Timer(o){const col=T.mode==='focus'?'var(--ac)':'#93c5fd';return`<div class="card" style="max-width:420px;margin:auto;text-align:center"><select style="width:100%;margin-bottom:8px" onchange="T.task=this.value"><option value="">- link a task -</option>${o.tasks.filter(t=>!t.done).map(t=>`<option value="${t.id}" ${T.task===t.id?'selected':''}>${esc(t.title)}</option>`).join('')}</select>
+ <div class="row" style="justify-content:center">${[[25,5],[50,10],[90,20]].map(p=>`<button class="${T.p[0]===p[0]?'on':'t'}" onclick="preset(${p})">${p[0]}/${p[1]}</button>`).join('')}</div>
+ <div style="position:relative;width:240px;margin:12px auto"><svg viewBox="0 0 200 200" width="240"><circle cx="100" cy="100" r="90" fill="none" stroke="var(--bd)" stroke-width="12"/><circle id="ring" cx="100" cy="100" r="90" fill="none" stroke="${col}" stroke-width="12" stroke-linecap="round" stroke-dasharray="565.5" style="stroke-dashoffset:${565.5*(1-T.secs/(T.p[T.mode==='focus'?0:1]*60))}" transform="rotate(-90 100 100)"/></svg><div id="tm">${mmss()}</div></div>
+ <p style="color:${col};font-weight:700;text-transform:uppercase;letter-spacing:2px">${T.mode==='focus'?' Focus':' Break'}</p>
+ <div class="row" style="justify-content:center"><button onclick="toggle(${!T.run})">${T.run?'⏸ Pause':'▶ Start'}</button><button class="s" onclick="setT('focus',false)">↺ Reset</button></div><p class="m">Tip: press the spacebar to start/pause</p></div>`},
+Analytics(o){const b=Object.entries(o.byHour).sort((a,b)=>b[1]-a[1])[0];return`<div class="g"><div class="card"><h2>Time by subject</h2>${bars(o.bySubject)}</div><div class="card"><h2>Study time by weekday</h2>${bars(o.byDay)}</div>
+ <div class="card"><h2>Productive hours</h2>${bars(o.byHour)}${b?`<p>Most productive hour: <b>${b[0]}</b></p>`:''}</div>
+ <div class="card"><h2>Estimated vs actual</h2>${o.tasks.map(t=>`<div class="sp"><span>${esc(t.title)}</span><span>${Math.round(t.logged/6)/10}h / ${t.estHours}h</span></div>`).join('')}<p>Task completion rate: <b>${o.rate}%</b></p></div></div>`}};
+function addClass(){S.classes.push({id:uid(),title:$('ct'),kind:$('ck'),day:+$('cd'),start:$('cs'),end:$('ce')});save();render();toast(' Class added')}
+function addTask(){S.tasks.push({id:uid(),title:$('tt'),course:$('tc'),deadline:new Date($('td')).toISOString(),estHours:+$('te'),difficulty:+$('tf'),weight:+$('tw'),done:false,isExam:document.getElementById('tx').checked});save();render();toast(' Task added and auto-scheduled')}
+const del=(k,id)=>{S[k]=S[k].filter(x=>x.id!==id);save();render()},tog=id=>{const t=S.tasks.find(x=>x.id===id);t.done=!t.done;if(t.done){burst();toast(' Task completed. Nice work!')}save();render()};
+function render(){const ic={Dashboard:'',Timetable:'',Tasks:'',Timer:'',Analytics:''};document.getElementById('nav').innerHTML=Object.keys(views).map(n=>`<button class="${n===tab?'on':'t'}" onclick="tab='${n}';render()">${ic[n]} ${n}</button>`).join('');document.getElementById('v').innerHTML=views[tab](overview())}
+addEventListener('keydown',e=>{if(tab==='Timer'&&e.code==='Space'&&!/INPUT|SELECT|BUTTON/.test(e.target.tagName)){e.preventDefault();toggle(!T.run)}});
+// First open: pre-load the EEE CIA-II schedule once (Clear all won't bring it back)
+let seeded=false;try{seeded=!!localStorage.getItem('ssp_seeded')}catch(e){}
+if(!seeded&&!S.tasks.length&&!S.classes.length){try{localStorage.setItem('ssp_seeded','1')}catch(e){}loadEEE()}
+render();
+</script></body></html>
